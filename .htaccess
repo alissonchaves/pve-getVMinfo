@@ -1,0 +1,10 @@
+RewriteEngine On
+
+# Block direct access to lib directory and hosts file
+RewriteRule ^lib/ - [F]
+RewriteRule ^hosts\.txt$ - [F]
+
+# Allow public files
+<FilesMatch "^(pve_inventory\.html|pve_inventory\.csv)$">
+  Require all granted
+</FilesMatch>
