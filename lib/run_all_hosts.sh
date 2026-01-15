@@ -4,7 +4,7 @@ set -u
 HOSTS_FILE=${1:-"$(dirname "$0")/hosts.list"}
 SSH_USER=${2:-"root"}
 SSH_PASS=${3:-""}
-OUT_DIR=${4:-"$(dirname "$0")"}
+OUT_DIR=${4:-"$(cd "$(dirname "$0")/.." && pwd)"}
 
 if [[ ! -f "$HOSTS_FILE" ]]; then
     echo "Hosts file not found: $HOSTS_FILE" >&2

@@ -417,7 +417,22 @@
         if (!parsed.length) throw new Error('CSV is empty');
         const header = parsed[0];
         const dataRows = parsed.slice(1);
-        buildTable(header, dataRows);
+        const normalize = (value) => value.trim().toLowerCase().replace(/[_\s]+/g, '');
+        const vmNameIndex = header.findIndex((col) => normalize(col) === 'vmname');
+        const nodeIndex = header.findIndex((col) => normalize(col) === 'node');
+        let finalHeader = header;
+        let finalRows = dataRows;
+
+        if (vmNameIndex !== -1 && nodeIndex !== -1 && nodeIndex !== vmNameIndex + 1) {
+          const order = header.map((_, idx) => idx);
+          order.splice(nodeIndex, 1);
+          const insertAt = vmNameIndex < nodeIndex ? vmNameIndex + 1 : vmNameIndex;
+          order.splice(insertAt, 0, nodeIndex);
+          finalHeader = order.map((idx) => header[idx]);
+          finalRows = dataRows.map((row) => order.map((idx) => row[idx]));
+        }
+
+        buildTable(finalHeader, finalRows);
         if (lastStartIndex !== -1) {
           sortColumn.value = String(lastStartIndex);
           sortOrder.value = 'asc';
