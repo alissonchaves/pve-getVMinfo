@@ -142,6 +142,16 @@
         return result;
       }
 
+      function dedupeRows(dataRows) {
+        const seen = new Set();
+        return dataRows.filter((row) => {
+          const key = row.map((cell) => String(cell).trim()).join('\x1f');
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
       function buildTable(header, dataRows) {
         thead.innerHTML = '';
         tbody.innerHTML = '';
@@ -416,7 +426,7 @@
         const parsed = parseCsv(text);
         if (!parsed.length) throw new Error('CSV is empty');
         const header = parsed[0];
-        const dataRows = parsed.slice(1);
+        const dataRows = dedupeRows(parsed.slice(1));
         const normalize = (value) => value.trim().toLowerCase().replace(/[_\s]+/g, '');
         const vmNameIndex = header.findIndex((col) => normalize(col) === 'vmname');
         const nodeIndex = header.findIndex((col) => normalize(col) === 'node');

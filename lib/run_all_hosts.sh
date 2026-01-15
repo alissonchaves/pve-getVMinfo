@@ -83,4 +83,103 @@ while IFS= read -r raw_host <&3 || [[ -n "$raw_host" ]]; do
 done
 exec 3<&-
 
+if command -v python3 >/dev/null 2>&1; then
+    python3 - "$MERGED_CSV" <<'PY'
+import csv
+import datetime as dt
+import sys
+
+path = sys.argv[1]
+with open(path, newline="") as f:
+    rows = list(csv.reader(f))
+
+if not rows:
+    raise SystemExit(0)
+
+header, data = rows[0], rows[1:]
+
+def norm(text):
+    return "".join(ch for ch in text.strip().lower() if ch.isalnum())
+
+def find_index(name, default):
+    target = norm(name)
+    for i, col in enumerate(header):
+        if norm(col) == target:
+            return i
+    return default
+
+type_idx = find_index("Type", 0)
+vmid_idx = find_index("VMID", 1)
+status_idx = find_index("Status", -1)
+last_idx = find_index("Last Start", 8)
+
+def parse_ts(value):
+    text = value.strip()
+    if not text or text == "-" or text.lower() == "null":
+        return None
+    if " " in text and "T" not in text:
+        text = text.replace(" ", "T", 1)
+    try:
+        return dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+def completeness_score(row):
+    score = 0
+    for cell in row:
+        val = cell.strip()
+        if val and val not in ("-", "null"):
+            score += 1
+    return score
+
+def status_score(row):
+    if status_idx < 0:
+        return 0
+    value = row[status_idx].strip().lower()
+    if value == "online":
+        return 2
+    if value == "offline":
+        return 1
+    return 0
+
+def is_better(new_row, old_row, new_meta, old_meta):
+    if new_meta["ts"] and not old_meta["ts"]:
+        return True
+    if new_meta["ts"] and old_meta["ts"] and new_meta["ts"] > old_meta["ts"]:
+        return True
+    if new_meta["ts"] == old_meta["ts"]:
+        if new_meta["score"] > old_meta["score"]:
+            return True
+        if new_meta["score"] == old_meta["score"]:
+            return new_meta["status"] > old_meta["status"]
+    return False
+
+order = []
+best = {}
+meta = {}
+
+for row in data:
+    key = (row[type_idx].strip(), row[vmid_idx].strip())
+    row_meta = {
+        "ts": parse_ts(row[last_idx]) if last_idx >= 0 and last_idx < len(row) else None,
+        "score": completeness_score(row),
+        "status": status_score(row),
+    }
+    if key not in best:
+        best[key] = row
+        meta[key] = row_meta
+        order.append(key)
+        continue
+    if is_better(row, best[key], row_meta, meta[key]):
+        best[key] = row
+        meta[key] = row_meta
+
+with open(path, "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(header)
+    for key in order:
+        writer.writerow(best[key])
+PY
+fi
+
 echo "Merged CSV written to: $MERGED_CSV"
