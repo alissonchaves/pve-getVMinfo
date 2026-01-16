@@ -5,31 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Proxmox VM Inventory</title>
   <link rel="stylesheet" href="./css/bootstrap.min.css">
-  <style>
-    body { background: #ffffff; }
-    .table-wrap { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 10px 24px rgba(0,0,0,0.08); }
-    .table thead th { background: #1f2933; color: #fff; position: sticky; top: 0; z-index: 2; }
-    .table tfoot td { background: #1f2933; color: #fff; font-weight: 600; }
-    .table th, .table td { border-right: 1px solid #e4e7eb; }
-    .table th:last-child, .table td:last-child { border-right: none; }
-    .filters th { background: #f8fafc; position: sticky; top: 40px; z-index: 1; }
-    .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    .toolbar .form-control { max-width: 320px; }
-    .meta { color: #52606d; font-size: 0.9rem; }
-    .status-online { color: #0f5132; font-weight: 600; }
-    .status-offline { color: #842029; font-weight: 600; }
-    .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; border: 1px solid #d9e2ec; border-radius: 8px; padding: 8px 10px; background: #f8fafc; }
-    .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #52606d; }
-    .legend-swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
-    .row-fresh td { background-color: #e8f5e9 !important; }
-    .row-stale td { background-color: #fff8e1 !important; }
-    .row-old td { background-color: #ffebee !important; }
-    .legend-swatch.row-fresh { background-color: #e8f5e9; }
-    .legend-swatch.row-stale { background-color: #fff8e1; }
-    .legend-swatch.row-old { background-color: #ffebee; }
-    .sort-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .sort-controls .form-select { max-width: 200px; }
-  </style>
+  <link rel="stylesheet" href="./css/custom.css">
 </head>
 <body>
   <div class="container py-4">
@@ -38,7 +14,7 @@
         <h1 class="h3 mb-1">Proxmox VM Inventory</h1>
         <div class="meta" id="row-count"></div>
         <div class="legend">
-          <span class="legend-item">Time offline</span>
+          <span class="legend-item">Last Startup:</span>
           <span class="legend-item"><span class="legend-swatch row-old"></span>More than 1 year</span>
           <span class="legend-item"><span class="legend-swatch row-stale"></span>More than 6 months</span>
           <span class="legend-item"><span class="legend-swatch row-fresh"></span>Less than 6 months</span>
@@ -59,6 +35,7 @@
 
     <div class="table-wrap">
       <div class="meta mb-2" id="generated-at"></div>
+      <br>
       <input id="global-filter" class="form-control form-control-sm mb-3" type="text" placeholder="Search all columns">
       <div class="table-responsive">
         <table id="pve-table" class="table table-striped table-hover table-sm">
@@ -256,6 +233,20 @@
           allOpt.textContent = 'All';
           select.appendChild(allOpt);
 
+          if (index === lastStartIndex) {
+            const options = [
+              ['__age_old', 'More than 1 year'],
+              ['__age_stale', '6 months to 1 year'],
+              ['__age_fresh', 'Less than 6 months'],
+            ];
+            options.forEach(([value, label]) => {
+              const opt = document.createElement('option');
+              opt.value = value;
+              opt.textContent = label;
+              select.appendChild(opt);
+            });
+          }
+
           sorted.forEach((value) => {
             const opt = document.createElement('option');
             opt.value = value;
@@ -280,26 +271,29 @@
         });
 
         if (lastStartIndex === -1) return;
+        rows.forEach((row) => {
+          row.classList.remove('row-old', 'row-stale', 'row-fresh');
+          const bucket = getLastStartBucket(row);
+          if (bucket === 'old') row.classList.add('row-old');
+          if (bucket === 'stale') row.classList.add('row-stale');
+          if (bucket === 'fresh') row.classList.add('row-fresh');
+        });
+      }
+
+      function getLastStartBucket(row) {
+        if (lastStartIndex === -1) return '';
         const now = new Date();
         const oneYearMs = 365 * 24 * 60 * 60 * 1000;
         const sixMonthsMs = 182 * 24 * 60 * 60 * 1000;
-
-        rows.forEach((row) => {
-          row.classList.remove('row-old', 'row-stale', 'row-fresh');
-          const raw = row.cells[lastStartIndex]?.dataset?.raw;
-          const value = raw ? raw.trim() : row.cells[lastStartIndex]?.textContent.trim();
-          if (!value) return;
-          const date = new Date(value);
-          if (Number.isNaN(date.getTime())) return;
-          const ageMs = now - date;
-          if (ageMs > oneYearMs) {
-            row.classList.add('row-old');
-          } else if (ageMs > sixMonthsMs) {
-            row.classList.add('row-stale');
-          } else {
-            row.classList.add('row-fresh');
-          }
-        });
+        const raw = row.cells[lastStartIndex]?.dataset?.raw;
+        const value = raw ? raw.trim() : row.cells[lastStartIndex]?.textContent.trim();
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '';
+        const ageMs = now - date;
+        if (ageMs > oneYearMs) return 'old';
+        if (ageMs > sixMonthsMs) return 'stale';
+        return 'fresh';
       }
 
       function compareValues(a, b, index) {
@@ -346,6 +340,12 @@
             if (!visible) return;
             const filterValue = select.value;
             if (!filterValue) return;
+            if (idx === lastStartIndex && filterValue.startsWith('__age_')) {
+              const bucket = getLastStartBucket(row);
+              const wanted = filterValue.replace('__age_', '');
+              if (bucket !== wanted) visible = false;
+              return;
+            }
             if (cells[idx] !== filterValue) visible = false;
           });
 
@@ -430,17 +430,30 @@
         const normalize = (value) => value.trim().toLowerCase().replace(/[_\s]+/g, '');
         const vmNameIndex = header.findIndex((col) => normalize(col) === 'vmname');
         const nodeIndex = header.findIndex((col) => normalize(col) === 'node');
+        const statusIndex = header.findIndex((col) => normalize(col) === 'status');
+        const poolIndex = header.findIndex((col) => normalize(col) === 'pool');
         let finalHeader = header;
         let finalRows = dataRows;
 
+        const order = header.map((_, idx) => idx);
+
         if (vmNameIndex !== -1 && nodeIndex !== -1 && nodeIndex !== vmNameIndex + 1) {
-          const order = header.map((_, idx) => idx);
-          order.splice(nodeIndex, 1);
-          const insertAt = vmNameIndex < nodeIndex ? vmNameIndex + 1 : vmNameIndex;
+          order.splice(order.indexOf(nodeIndex), 1);
+          const insertAt = order.indexOf(vmNameIndex) + 1;
           order.splice(insertAt, 0, nodeIndex);
-          finalHeader = order.map((idx) => header[idx]);
-          finalRows = dataRows.map((row) => order.map((idx) => row[idx]));
         }
+
+        if (statusIndex !== -1 && poolIndex !== -1 && statusIndex < poolIndex) {
+          const statusPos = order.indexOf(statusIndex);
+          const poolPos = order.indexOf(poolIndex);
+          if (statusPos !== -1 && poolPos !== -1 && statusPos < poolPos) {
+            order.splice(poolPos, 1);
+            order.splice(statusPos, 0, poolIndex);
+          }
+        }
+
+        finalHeader = order.map((idx) => header[idx]);
+        finalRows = dataRows.map((row) => order.map((idx) => row[idx]));
 
         buildTable(finalHeader, finalRows);
         if (lastStartIndex !== -1) {
